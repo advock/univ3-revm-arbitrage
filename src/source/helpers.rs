@@ -6,6 +6,7 @@ use alloy_transport_http::Http;
 use anyhow::{anyhow, Result};
 use reqwest::Client;
 use revm::primitives::{keccak256, AccountInfo, Bytecode};
+use revm::DatabaseRef;
 use revm::{
     db::{AlloyDB, CacheDB},
     primitives::{Address, Bytes, ExecutionResult, Output, TransactTo, U256},
@@ -118,6 +119,29 @@ pub fn revm_revert(
     };
 
     Ok(value)
+}
+
+pub fn revm_balance(address: Address, cache_db: &mut AlloyCacheDB) -> Result<U256> {
+    let mut evm = Evm::builder()
+        .with_db(cache_db.clone())
+        .modify_tx_env(|tx| {
+            tx.caller = Address::ZERO;
+            tx.transact_to = TransactTo::Call(address);
+            tx.data = Bytes::new(); // Empty calldata for balance check
+            tx.value = U256::ZERO;
+        })
+        .build();
+
+    let ref_tx = evm.transact().unwrap();
+    let result = ref_tx.result;
+
+    match result {
+        ExecutionResult::Success { .. } => {
+            let account_info = cache_db.basic_ref(address)?;
+            Ok(account_info.unwrap().balance)
+        }
+        _ => Err(anyhow!("Failed to get balance")),
+    }
 }
 
 pub fn init_cache_db(provider: Arc<RootProvider<Http<Client>>>) -> AlloyCacheDB {

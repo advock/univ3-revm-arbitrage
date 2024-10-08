@@ -1,6 +1,7 @@
 pub mod source;
 use alloy_provider::ProviderBuilder;
 use anyhow::Result;
+use dotenv::dotenv;
 use revm::primitives::{Bytecode, Bytes, U256};
 use std::sync::Arc;
 use std::{ops::Div, str::FromStr};
@@ -8,19 +9,25 @@ use std::{ops::Div, str::FromStr};
 use crate::source::{
     custom_quoter_addr, decode_get_amount_out_response, get_amount_out_calldata, init_account,
     init_account_with_bytecode, init_cache_db, insert_mapping_storage_slot, me, one_ether,
-    pool_3000_addr, pool_500_addr, revm_revert, usdc_addr, volumes, weth_addr,
+    pool_3000_addr, pool_500_addr, revm_balance, revm_revert, usdc_addr, volumes, weth_addr,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv().ok();
     env_logger::init();
-
-    let provider = ProviderBuilder::new().on_http(std::env::var("ETH_RPC_URL").unwrap().parse()?);
+    let http_url = std::env::var("ETH_RPC_URL").expect("missing NETWORK_RPC");
+    let provider = ProviderBuilder::new().on_http(http_url.parse()?);
     let provider = Arc::new(provider);
 
     let volumes = volumes(U256::from(0), one_ether().div(U256::from(10)), 100);
 
     let mut cache_db = init_cache_db(provider.clone());
+
+    // below lines are just to see if we are fetcing data from the chain
+
+    let weth_balance = revm_balance(weth_addr(), &mut cache_db)?;
+    println!("WETH balance: {} wei", weth_balance);
 
     init_account(me(), &mut cache_db, provider.clone()).await?;
     init_account(pool_3000_addr(), &mut cache_db, provider.clone()).await?;
@@ -76,6 +83,7 @@ async fn main() -> Result<()> {
         let calldata = get_amount_out_calldata(pool_500_addr(), weth_addr(), usdc_addr(), volume);
         let response = revm_revert(me(), custom_quoter_addr(), calldata, &mut cache_db)?;
         let usdc_amount_out = decode_get_amount_out_response(response)?;
+        print!("usdc amount out {:?} -------", usdc_amount_out);
         let calldata = get_amount_out_calldata(
             pool_3000_addr(),
             usdc_addr(),
